@@ -1,0 +1,63 @@
+@startuml
+
+autonumber
+
+title Sequence Diagram: Reading orders & updating status with CACHE
+
+actor OPERATOR
+participant MES_UI as "MES UI"
+QUEUE RABBIT as "QUEUE (Rabbit MQ)"
+participant MES_API as "MES API"
+participant CACHE as "MES CACHE (Apache Ignite)"
+participant DB as "MES DB"
+
+note over MES_UI: Оператор открыл страницу в начале работы
+
+OPERATOR -> MES_UI: Открывает первую страницу MES
+MES_UI -> MES_API: GET /orders?status=MANUFACTURING_APPROVED
+MES_API -> CACHE: GET orders(key=MANUFACTURING_APPROVED)
+CACHE --> MES_API: Возвращает пустой список заказов
+MES_API --> MES_UI: Возвращает пустой список заказов
+
+note over RABBIT: Пришли первые заказы
+
+RABBIT -> MES_API: Поставляет из очереди 2 заказа в статусе MANUFACTURING_APPROVED
+MES_API -> DB:  Сохраняет в БД новые заказы в статусе MANUFACTURING_APPROVED
+MES_API -> CACHE:  Сохраняет в кеш новые заказы в статусе MANUFACTURING_APPROVED
+
+note over MES_UI: Оператор обновил страницу
+
+OPERATOR -> MES_UI: Обновляет первую страницу MES
+MES_UI -> MES_API: GET /orders?status=MANUFACTURING_APPROVED
+MES_API -> CACHE: GET orders(key=MANUFACTURING_APPROVED)
+CACHE --> MES_API: Возвращает 2 заказа в статусе MANUFACTURING_APPROVED
+MES_API --> MES_UI: Возвращает 2 заказа в статусе MANUFACTURING_APPROVED
+
+note over MES_UI: Оператор взял 1 заказ в работу
+
+OPERATOR -> MES_UI: Нажимает "Взять в работу"
+MES_UI -> MES_API: POST /orders/{id}/status=MANUFACTURING_STARTED
+MES_API -> DB: UPDATE orders SET status=MANUFACTURING_STARTED WHERE...
+MES_API -> CACHE: UPDATE cache(key=MANUFACTURING_STARTED) SET status=MANUFACTURING_STARTED...
+MES_API --> MES_UI: 200 OK, status changed
+
+note over MES_UI: Оператор завершил работу по взятому заказу
+
+OPERATOR -> MES_UI: Нажимает "Работа завершена"
+MES_UI -> MES_API: POST /orders/{id}/status=MANUFACTURING_COMPLETED
+MES_API -> DB: UPDATE orders SET status=MANUFACTURING_COMPLETED WHERE...
+note over MES_API: Инвалидация кеша
+MES_API -> CACHE: DELETE cache(key=ORDER_ID)
+MES_API --> MES_UI: 200 OK, status changed
+
+note over MES_UI: Оператор обновил первую страницу
+
+OPERATOR -> MES_UI: Обновляет первую страницу MES
+MES_UI -> MES_API: GET /orders?status=MANUFACTURING_APPROVED
+MES_API -> CACHE: GET orders(key=MANUFACTURING_APPROVED)
+CACHE --> MES_API: Возвращает 1 заказ в статусе MANUFACTURING_APPROVED
+MES_API --> MES_UI: Возвращает 1 заказ в статусе MANUFACTURING_APPROVED
+
+note over OPERATOR: ...
+
+@enduml
